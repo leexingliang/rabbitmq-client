@@ -183,7 +183,7 @@ again:
 					break
 				}
 				// 休眠 500 ms
-				time.Sleep(500 * time.Microsecond)
+				time.Sleep(500 * time.Millisecond)
 				continue
 			}
 			callback(msg)
@@ -252,7 +252,7 @@ again:
 					break
 				}
 				// 休眠 500 ms
-				time.Sleep(500 * time.Microsecond)
+				time.Sleep(500 * time.Millisecond)
 				continue
 			}
 		case <-c.quit:

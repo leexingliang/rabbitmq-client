@@ -15,8 +15,6 @@ var ErrShutdown = errors.New("rabbitmq client is shutdwon")
 var ErrNotSend = errors.New("message not send")
 
 type Client struct {
-	base MQBase
-
 	url           string
 	conn          *amqp.Connection
 	channel       *amqp.Channel
@@ -31,17 +29,13 @@ type Client struct {
 }
 
 // NewMQClient 创建 rabbitmq 客户端
-func NewMQClient(
-	b MQBase,
-	ch chan interface{},
-) *Client {
+func NewMQClient(base MQBase, ch chan interface{}) *Client {
 	client := Client{
-		base:     b,
 		dataChan: ch,
 		quit:     make(chan interface{}, 3),
 	}
 
-	client.url = BuildURL(client.base)
+	client.url = BuildURL(base)
 
 	if err := client.connect(); err != nil {
 		panic(err)

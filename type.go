@@ -2,26 +2,19 @@ package mqutil
 
 // MQBase 消息队列配置
 type MQBase struct {
-	UserName string `toml:"username"`
-	Password string `toml:"password"`
-	URL      string `toml:"url"`
-	VHost    string `toml:"vhost"`
-}
-
-// MQQueues 队列名字
-type MQQueues struct {
-	JoinRoom   string `toml:"joinroom"`
-	FinishRoom string `toml:"finishroom"`
-	WBData     string `toml:"whiteboard"`
+	UserName string
+	Password string
+	URL      string
+	VHost    string
 }
 
 type MQPublish struct {
-	Exchange string `toml:"exchange"`
-	Key      string `toml:"key"`
+	Exchange string
+	Key      string
 }
 
 type MQConsume struct {
-	Tag string `toml:"tag"`
+	Tag string
 }
 
 type MQQos struct {

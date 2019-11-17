@@ -14,6 +14,8 @@ import (
 var ErrShutdown = errors.New("rabbitmq client is shutdwon")
 var ErrNotSend = errors.New("message not send")
 
+type ConsumeCallback func(amqp.Delivery) error
+
 type Client struct {
 	url           string
 	conn          *amqp.Connection
@@ -123,7 +125,7 @@ func (c *Client) reConnect() {
 }
 
 // Consume ...
-func (c *Client) Consume(queue string, callback func(amqp.Delivery), options ...Option) error {
+func (c *Client) Consume(queue string, callback ConsumeCallback, options ...Option) error {
 	if atomic.LoadInt32(&c.status) != int32(normal) {
 		return ErrShutdown
 	}
@@ -180,7 +182,10 @@ again:
 				time.Sleep(500 * time.Millisecond)
 				continue
 			}
-			callback(msg)
+			// 回调处理失败, 重入队列
+			if err := callback(msg); err != nil {
+				c.SendMessageNonBlock(msg.Body)
+			}
 		case <-c.quit:
 			break
 		}

@@ -219,15 +219,17 @@ again:
 		goto again
 	}
 	// bind exchange
-	if err := c.channel.QueueBind(
-		queue,
-		option.MQPublish.Key,
-		option.MQPublish.Exchange,
-		true,
-		nil,
-	); err != nil {
-		log.Printf("publish: queue bind exchange error: %s\n", err.Error())
-		goto again
+	if option.MQPublish.Exchange != defaultOption.MQPublish.Exchange {
+		if err := c.channel.QueueBind(
+			queue,
+			option.MQPublish.Key,
+			option.MQPublish.Exchange,
+			true,
+			nil,
+		); err != nil {
+			log.Printf("publish: queue bind exchange error: %s\n", err.Error())
+			goto again
+		}
 	}
 
 	for {

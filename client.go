@@ -1,4 +1,4 @@
-package mqutil
+package mqclient
 
 import (
 	"fmt"

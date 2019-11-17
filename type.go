@@ -1,4 +1,4 @@
-package mqutil
+package mqclient
 
 // MQBase 消息队列配置
 type MQBase struct {

@@ -27,13 +27,13 @@ type Client struct {
 	wg     sync.WaitGroup // 如果连接断掉了， consume 需要阻塞等待
 
 	quit     chan interface{} // 通知退出
-	dataChan chan interface{} // 数据通道
+	sendChan chan interface{} // 数据发送通道
 }
 
 // NewMQClient 创建 rabbitmq 客户端
-func NewMQClient(base MQBase, ch chan interface{}) *Client {
+func NewMQClient(base MQBase, send chan interface{}) *Client {
 	client := Client{
-		dataChan: ch,
+		sendChan: send,
 		quit:     make(chan interface{}, 3),
 	}
 
@@ -231,7 +231,7 @@ again:
 
 	for {
 		select {
-		case msg := <-c.dataChan:
+		case msg := <-c.sendChan:
 			if err := c.channel.Publish(
 				option.MQPublish.Exchange, // exchange
 				option.MQPublish.Key,      // routing key
@@ -242,7 +242,7 @@ again:
 					Body:        msg.([]byte),
 				},
 			); err != nil {
-				c.dataChan <- msg
+				c.SendMessageNonBlock(msg.([]byte))
 				log.Printf("send msg error: %s\n", err.Error())
 				status := atomic.LoadInt32(&c.status)
 				if status == int32(shutdown) {
@@ -262,12 +262,12 @@ again:
 }
 
 func (c *Client) SendMessage(msg []byte) {
-	c.dataChan <- msg
+	c.sendChan <- msg
 }
 
 func (c *Client) SendMessageNonBlock(msg []byte) error {
 	select {
-	case c.dataChan <- msg:
+	case c.sendChan <- msg:
 	default:
 		return ErrNotSend
 	}

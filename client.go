@@ -118,8 +118,9 @@ func (c *Client) reConnect() {
 
 				c.connNotify = c.conn.NotifyClose(make(chan *amqp.Error, 1))
 				c.channelNotify = c.channel.NotifyClose(make(chan *amqp.Error, 1))
-				break
 			}
+			// reconnect success
+			break
 		}
 	}
 }
@@ -176,7 +177,7 @@ again:
 				if status == int32(shutdown) {
 					goto again
 				} else if status == int32(closed) {
-					break
+					return nil
 				}
 				// 休眠 500 ms
 				time.Sleep(500 * time.Millisecond)
@@ -187,7 +188,7 @@ again:
 				c.SendMessageNonBlock(msg.Body)
 			}
 		case <-c.quit:
-			break
+			return nil
 		}
 	}
 }
@@ -248,17 +249,16 @@ again:
 				if status == int32(shutdown) {
 					goto again
 				} else if status == int32(closed) {
-					break
+					return nil
 				}
 				// 休眠 500 ms
 				time.Sleep(500 * time.Millisecond)
 				continue
 			}
 		case <-c.quit:
-			break
+			return nil
 		}
 	}
-	return nil
 }
 
 func (c *Client) SendMessage(msg []byte) {

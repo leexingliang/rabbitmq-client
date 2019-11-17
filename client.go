@@ -104,6 +104,7 @@ func (c *Client) reConnect() {
 		for {
 			select {
 			case <-c.quit:
+				c.wg.Done()
 				return
 			default:
 				if err := c.connect(); err != nil {
@@ -125,18 +126,25 @@ func (c *Client) reConnect() {
 	}
 }
 
+func (c *Client) isClosed() bool {
+	if atomic.LoadInt32(&c.status) == int32(closed) {
+		return true
+	}
+	return false
+}
+
 // Consume ...
 func (c *Client) Consume(queue string, callback ConsumeCallback, options ...Option) error {
-	if atomic.LoadInt32(&c.status) != int32(normal) {
-		return ErrShutdown
-	}
-
 	option := defaultOption
 	for _, opt := range options {
 		opt(&option)
 	}
+
 again:
 	c.wg.Wait()
+	if c.isClosed() {
+		return nil
+	}
 	if _, err := c.channel.QueueDeclare(
 		queue, // name
 		true,  // durable
@@ -196,10 +204,6 @@ again:
 // Publish ...
 // key 和 exchange 如果为空， 绑定到默认的 exchange 上
 func (c *Client) Publish(queue string, options ...Option) error {
-	if atomic.LoadInt32(&c.status) != int32(normal) {
-		return ErrShutdown
-	}
-
 	option := defaultOption
 	for _, opt := range options {
 		opt(&option)
@@ -207,6 +211,9 @@ func (c *Client) Publish(queue string, options ...Option) error {
 
 again:
 	c.wg.Wait()
+	if c.isClosed() {
+		return nil
+	}
 	if _, err := c.channel.QueueDeclare(
 		queue, // name
 		true,  // durable

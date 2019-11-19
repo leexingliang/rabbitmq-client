@@ -15,5 +15,5 @@ func main() {
 	queue := "test-queue"
 
 	client := mqclient.NewMQClient(base, make(chan interface{}, 100*1000))
-	go client.Publish(queue)
+	go client.Publish(queue, mqclient.WithMQPublish(mqclient.MQPublish{Key: queue}))
 }

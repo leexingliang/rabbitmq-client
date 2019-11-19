@@ -14,11 +14,11 @@ func main() {
 		URL:      "localhost:5437",
 		VHost:    "test",
 	}
+	queue := "test-queue"
 	publish := mqclient.MQPublish{
 		Exchange: "aha",
-		Key:      "aha",
+		Key:      queue,
 	}
-	queue := "test-queue"
 
 	client := mqclient.NewMQClient(base, make(chan interface{}, 100*10))
 	go client.Consume(queue, func(delivery amqp.Delivery) error {

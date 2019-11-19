@@ -43,9 +43,6 @@ func NewMQClient(base MQBase, send chan interface{}) *Client {
 		panic(err)
 	}
 
-	client.connNotify = client.conn.NotifyClose(make(chan *amqp.Error, 1))
-	client.channelNotify = client.channel.NotifyClose(make(chan *amqp.Error, 1))
-
 	go client.reConnect()
 
 	return &client
@@ -67,6 +64,10 @@ func (c *Client) connect() error {
 		c.conn.Close()
 		return err
 	}
+
+	c.connNotify = c.conn.NotifyClose(make(chan *amqp.Error, 1))
+	c.channelNotify = c.channel.NotifyClose(make(chan *amqp.Error, 1))
+
 	return nil
 }
 
@@ -93,14 +94,7 @@ func (c *Client) reConnect() {
 			log.Println("rabbitmq - channel close failed: ", err)
 		}
 
-		// 清空 notify channel，否则死连接不会释放
-		for err := range c.channelNotify {
-			println(err)
-		}
-		for err := range c.connNotify {
-			println(err)
-		}
-
+		c.cleanNotifyChannel()
 		for {
 			select {
 			case <-c.quit:
@@ -114,15 +108,22 @@ func (c *Client) reConnect() {
 					time.Sleep(time.Second * 5)
 					continue
 				}
-				c.wg.Done()
-				atomic.StoreInt32(&c.status, int32(normal))
-
-				c.connNotify = c.conn.NotifyClose(make(chan *amqp.Error, 1))
-				c.channelNotify = c.channel.NotifyClose(make(chan *amqp.Error, 1))
 			}
 			// reconnect success
+			c.wg.Done()
+			atomic.StoreInt32(&c.status, int32(normal))
 			break
 		}
+	}
+}
+
+func (c *Client) cleanNotifyChannel() {
+	// 清空 notify channel，否则死连接不会释放
+	for err := range c.channelNotify {
+		println(err)
+	}
+	for err := range c.connNotify {
+		println(err)
 	}
 }
 
@@ -162,6 +163,13 @@ again:
 		// todo
 	}
 
+	if !c.consume(queue, callback, option) {
+		goto again
+	}
+	return nil
+}
+
+func (c *Client) consume(queue string, callback ConsumeCallback, option option) bool {
 	// consume
 	msgchan, err := c.channel.Consume(
 		queue,
@@ -174,18 +182,19 @@ again:
 	)
 	if err != nil {
 		log.Printf("consume: channel consume error: %s\n", err.Error())
-		goto again
+		return false
 	}
-
 	for {
 		select {
+		case <-c.quit:
+			return true
 		case msg, ok := <-msgchan:
 			if !ok {
 				status := atomic.LoadInt32(&c.status)
 				if status == int32(shutdown) {
-					goto again
+					return false
 				} else if status == int32(closed) {
-					return nil
+					return true
 				}
 				// 休眠 500 ms
 				time.Sleep(500 * time.Millisecond)
@@ -195,8 +204,6 @@ again:
 			if err := callback(msg); err != nil {
 				c.SendMessageNonBlock(msg.Body)
 			}
-		case <-c.quit:
-			return nil
 		}
 	}
 }
@@ -239,8 +246,18 @@ again:
 		}
 	}
 
+	if !c.publish(option) {
+		goto again
+	}
+	return nil
+}
+
+// 返回值表示客户端是否已经 close
+func (c *Client) publish(option option) bool {
 	for {
 		select {
+		case <-c.quit:
+			return true
 		case msg := <-c.sendChan:
 			if err := c.channel.Publish(
 				option.MQPublish.Exchange, // exchange
@@ -256,16 +273,14 @@ again:
 				log.Printf("send msg error: %s\n", err.Error())
 				status := atomic.LoadInt32(&c.status)
 				if status == int32(shutdown) {
-					goto again
+					return false
 				} else if status == int32(closed) {
-					return nil
+					return true
 				}
 				// 休眠 500 ms
 				time.Sleep(500 * time.Millisecond)
 				continue
 			}
-		case <-c.quit:
-			return nil
 		}
 	}
 }

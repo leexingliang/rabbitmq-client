@@ -22,5 +22,6 @@ func main() {
 		fmt.Println(delivery.Body)
 		return nil
 	}, mqclient.WithMQConsume(mqclient.MQConsume{Tag: "queue-name"}))
-	go client.Publish(queue, mqclient.WithMQPublish(mqclient.MQPublish{Key: queue}))
+	go client.Publish(queue,
+		mqclient.WithMQPublish(mqclient.MQPublish{Key: queue}))
 }

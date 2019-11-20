@@ -16,8 +16,11 @@ func main() {
 	}
 	queue := "test-queue"
 	publish := mqclient.MQPublish{
-		Exchange: "aha",
-		Key:      queue,
+		Key: queue,
+	}
+	exchange := mqclient.MQExchange{
+		Exchange: "test-exchange",
+		Type:     "direct",
 	}
 
 	client := mqclient.NewMQClient(base)
@@ -27,5 +30,7 @@ func main() {
 		return nil
 	}, mqclient.WithMQConsume(mqclient.MQConsume{Tag: "hahah"}))
 
-	go client.Publish(queue, mqclient.WithMQPublish(publish))
+	go client.Publish(queue,
+		mqclient.WithMQPublish(publish),
+		mqclient.WithMQExchange(exchange))
 }

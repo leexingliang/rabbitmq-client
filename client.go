@@ -1,6 +1,7 @@
 package mqclient
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"sync"
@@ -11,11 +12,25 @@ import (
 	"github.com/streadway/amqp"
 )
 
+// ErrShutdown 客户端连接断开
 var ErrShutdown = errors.New("rabbitmq client is shutdwon")
+
+// ErrNotSend 消息未发送或者发送失败
 var ErrNotSend = errors.New("message not send")
 
+// ErrQueueExsit queue 已经存在绑定关系
+var ErrQueueExsit = errors.New("queue's sending channel allready exsit")
+
+// ErrClose 客户端已关闭
+var ErrClose = errors.New("closed")
+
+// ErrQueueNotBindChannel queue 没有 发送channel 的绑定关系
+var ErrQueueNotBindChannel = errors.New("queue not bind channel")
+
+// ConsumeCallback consume 回调处理
 type ConsumeCallback func(amqp.Delivery) error
 
+// Client rabbitmq 客户端
 type Client struct {
 	url           string
 	conn          *amqp.Connection
@@ -26,17 +41,20 @@ type Client struct {
 	status int32          // 当前客户端状态， 正常还是断线
 	wg     sync.WaitGroup // 如果连接断掉了， consume 需要阻塞等待
 
-	quit     chan interface{} // 通知退出
-	sendChan chan interface{} // 数据发送通道
+	ctx        context.Context // 通知退出
+	cancelFunc context.CancelFunc
+
+	sendChan map[string]chan interface{} // 数据发送通道, queue->channel
+	lock     sync.RWMutex
 }
 
 // NewMQClient 创建 rabbitmq 客户端
-func NewMQClient(base MQBase, send chan interface{}) *Client {
-	client := Client{
-		sendChan: send,
-		quit:     make(chan interface{}, 3),
-	}
+func NewMQClient(base MQBase) *Client {
 
+	client := Client{
+		sendChan: make(map[string]chan interface{}),
+	}
+	client.ctx, client.cancelFunc = context.WithCancel(context.Background())
 	client.url = BuildURL(base)
 
 	if err := client.connect(); err != nil {
@@ -51,6 +69,18 @@ func NewMQClient(base MQBase, send chan interface{}) *Client {
 // BuildURL 构建 rabbitmq url
 func BuildURL(b MQBase) string {
 	return fmt.Sprintf("amqp://%s:%s@%s/%s", b.UserName, b.Password, b.URL, b.VHost)
+}
+
+// BindChannel 消息队列绑定消息发送的 channel
+func (c *Client) BindChannel(queue string, sendChan chan interface{}) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	if _, ok := c.sendChan[queue]; ok {
+		return ErrQueueExsit
+	}
+	c.sendChan[queue] = sendChan
+	return nil
 }
 
 // 连接 rabbitmq
@@ -83,7 +113,7 @@ func (c *Client) reConnect() {
 			if err != nil {
 				log.Println("rabbitmq - channel NotifyClose: ", err)
 			}
-		case <-c.quit:
+		case <-c.ctx.Done():
 			return
 		}
 
@@ -97,7 +127,7 @@ func (c *Client) reConnect() {
 		c.cleanNotifyChannel()
 		for {
 			select {
-			case <-c.quit:
+			case <-c.ctx.Done():
 				c.wg.Done()
 				return
 			default:
@@ -163,13 +193,21 @@ again:
 		// todo
 	}
 
-	if !c.consume(queue, callback, option) {
-		goto again
+con:
+	if err := c.consume(queue, callback, option); err != nil {
+		// 检查一下错误码
+		if err == ErrQueueNotBindChannel {
+			return errors.Wrapf(err, "queue: %s", queue)
+		} else if err == ErrClose {
+			return ErrClose
+		}
 	}
-	return nil
+
+	time.Sleep(100 * time.Millisecond)
+	goto con
 }
 
-func (c *Client) consume(queue string, callback ConsumeCallback, option option) bool {
+func (c *Client) consume(queue string, callback ConsumeCallback, option option) error {
 	// consume
 	msgchan, err := c.channel.Consume(
 		queue,
@@ -182,27 +220,19 @@ func (c *Client) consume(queue string, callback ConsumeCallback, option option) 
 	)
 	if err != nil {
 		log.Printf("consume: channel consume error: %s\n", err.Error())
-		return false
+		return err
 	}
 	for {
 		select {
-		case <-c.quit:
-			return true
+		case <-c.ctx.Done():
+			return ErrClose
 		case msg, ok := <-msgchan:
 			if !ok {
-				status := atomic.LoadInt32(&c.status)
-				if status == int32(shutdown) {
-					return false
-				} else if status == int32(closed) {
-					return true
-				}
-				// 休眠 500 ms
-				time.Sleep(500 * time.Millisecond)
-				continue
+				return errors.New("consume channel is closed")
 			}
 			// 回调处理失败, 重入队列
 			if err := callback(msg); err != nil {
-				c.SendMessageNonBlock(msg.Body)
+				c.SendMessageNonBlock(queue, msg.Body)
 			}
 		}
 	}
@@ -245,20 +275,35 @@ again:
 			goto again
 		}
 	}
-
-	if !c.publish(option) {
-		goto again
+pub:
+	if err := c.publish(queue, option); err != nil {
+		// 检查一下错误码
+		if err == ErrQueueNotBindChannel {
+			return errors.Wrapf(err, "queue: %s", queue)
+		} else if err == ErrClose {
+			return ErrClose
+		}
 	}
-	return nil
+
+	time.Sleep(100 * time.Millisecond)
+	goto pub
 }
 
 // 返回值表示客户端是否已经 close
-func (c *Client) publish(option option) bool {
+func (c *Client) publish(queue string, option option) error {
+	c.lock.RLock()
+	sendChan, ok := c.sendChan[queue]
+	if !ok {
+		c.lock.RUnlock()
+		return ErrQueueNotBindChannel
+	}
+	c.lock.RUnlock()
+
 	for {
 		select {
-		case <-c.quit:
-			return true
-		case msg := <-c.sendChan:
+		case <-c.ctx.Done():
+			return ErrClose
+		case msg := <-sendChan:
 			if err := c.channel.Publish(
 				option.MQPublish.Exchange, // exchange
 				option.MQPublish.Key,      // routing key
@@ -269,29 +314,37 @@ func (c *Client) publish(option option) bool {
 					Body:        msg.([]byte),
 				},
 			); err != nil {
-				c.SendMessageNonBlock(msg.([]byte))
-				log.Printf("send msg error: %s\n", err.Error())
-				status := atomic.LoadInt32(&c.status)
-				if status == int32(shutdown) {
-					return false
-				} else if status == int32(closed) {
-					return true
-				}
-				// 休眠 500 ms
-				time.Sleep(500 * time.Millisecond)
-				continue
+				c.SendMessageNonBlock(queue, msg.([]byte))
+				return err
 			}
 		}
 	}
 }
 
-func (c *Client) SendMessage(msg []byte) {
-	c.sendChan <- msg
+func (c *Client) SendMessage(queue string, msg []byte) error {
+	c.lock.RLock()
+	sendChan, ok := c.sendChan[queue]
+	if !ok {
+		c.lock.RUnlock()
+		return ErrQueueNotBindChannel
+	}
+	c.lock.RUnlock()
+
+	sendChan <- msg
+
+	return nil
 }
 
-func (c *Client) SendMessageNonBlock(msg []byte) error {
+func (c *Client) SendMessageNonBlock(queue string, msg []byte) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	sendChan, ok := c.sendChan[queue]
+	if !ok {
+		return ErrQueueNotBindChannel
+	}
+
 	select {
-	case c.sendChan <- msg:
+	case sendChan <- msg:
 	default:
 		return ErrNotSend
 	}
@@ -299,9 +352,7 @@ func (c *Client) SendMessageNonBlock(msg []byte) error {
 }
 
 func (c *Client) Close() {
-	c.quit <- true
-	c.quit <- true
-	c.quit <- true
+	c.cancelFunc()
 	atomic.StoreInt32(&c.status, int32(closed))
 	c.conn.Close()
 }

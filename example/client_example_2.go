@@ -16,7 +16,8 @@ func main() {
 	}
 	//
 	queue := "test-queue"
-	client := mqclient.NewMQClient(base, make(chan interface{}, 100*10))
+	client := mqclient.NewMQClient(base)
+	client.BindChannel(queue, make(chan interface{}, 100*10))
 	go client.Consume(queue, func(delivery amqp.Delivery) error {
 		fmt.Println(delivery.Body)
 		return nil

@@ -176,15 +176,8 @@ again:
 	if c.isClosed() {
 		return ErrClose
 	}
-	if _, err := c.channel.QueueDeclare(
-		queue, // name
-		true,  // durable
-		false, // delete when usused
-		false, // exclusive
-		true,  // no-wait
-		nil,   // arguments
-	); err != nil {
-		log.Printf("consume: queue delare error: %s\n", err.Error())
+	if err := c.declareQueue(queue); err != nil {
+		log.Println(err.Error())
 		goto again
 	}
 
@@ -254,30 +247,17 @@ again:
 	if c.isClosed() {
 		return ErrClose
 	}
-	if _, err := c.channel.QueueDeclare(
-		queue, // name
-		true,  // durable
-		false, // delete when usused
-		false, // exclusive
-		true,  // no-wait
-		nil,   // arguments
-	); err != nil {
-		log.Printf("publish: queue declare error: %s\n", err.Error())
+
+	if err := c.declareQueue(queue); err != nil {
+		log.Println(err.Error())
 		goto again
 	}
-	// bind exchange
-	if option.MQPublish.Exchange != defaultOption.MQPublish.Exchange {
-		if err := c.channel.QueueBind(
-			queue,
-			option.MQPublish.Key,
-			option.MQPublish.Exchange,
-			true,
-			nil,
-		); err != nil {
-			log.Printf("publish: queue bind exchange error: %s\n", err.Error())
-			goto again
-		}
+
+	if err := c.bindExchange(queue, option); err != nil {
+		log.Println(err.Error())
+		goto again
 	}
+
 republish:
 	if err := c.publish(queue, option); err != nil {
 		// 检查一下错误码
@@ -291,6 +271,49 @@ republish:
 
 	time.Sleep(100 * time.Millisecond)
 	goto republish
+}
+
+func (c *Client) declareQueue(queue string) error {
+	if _, err := c.channel.QueueDeclare(
+		queue, // name
+		true,  // durable
+		false, // delete when usused
+		false, // exclusive
+		true,  // no-wait
+		nil,   // arguments
+	); err != nil {
+		return errors.Wrap(err, "queue declare error")
+	}
+	return nil
+}
+
+func (c *Client) bindExchange(queue string, option option) error {
+	// bind exchange
+	if option.MQExchange.Exchange != defaultOption.MQExchange.Exchange {
+		// exchange declare
+		if err := c.channel.ExchangeDeclare(
+			option.MQExchange.Exchange,
+			option.MQExchange.Type,
+			true,
+			false,
+			false,
+			true,
+			nil,
+		); err != nil {
+			return errors.Wrap(err, "publish: queue bind exchange error")
+		}
+		// 将 queue 通过 key 绑定到 exchange 上
+		if err := c.channel.QueueBind(
+			queue,
+			option.MQPublish.Key,
+			option.MQExchange.Exchange,
+			true,
+			nil,
+		); err != nil {
+			return errors.Wrap(err, "publish: queue bind exchange error")
+		}
+	}
+	return nil
 }
 
 // 返回值表示客户端是否已经 close
@@ -310,10 +333,10 @@ func (c *Client) publish(queue string, option option) error {
 			return ErrClose
 		case msg := <-sendChan:
 			if err := c.channel.Publish(
-				option.MQPublish.Exchange, // exchange
-				option.MQPublish.Key,      // routing key
-				true,                      // mandatory
-				false,                     // immediate
+				option.MQExchange.Exchange, // exchange
+				option.MQPublish.Key,       // routing key
+				true,                       // mandatory
+				false,                      // immediate
 				amqp.Publishing{
 					ContentType: "application/json",
 					Body:        msg.([]byte),

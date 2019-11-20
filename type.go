@@ -9,8 +9,12 @@ type MQBase struct {
 }
 
 type MQPublish struct {
+	Key string
+}
+
+type MQExchange struct {
 	Exchange string
-	Key      string
+	Type     string
 }
 
 type MQConsume struct {
@@ -35,7 +39,9 @@ type Option func(*option)
 type option struct {
 	MQPublish MQPublish
 	MQConsume MQConsume
-	MQQos     MQQos
+
+	MQExchange MQExchange
+	MQQos      MQQos
 }
 
 func WithMQPublish(p MQPublish) Option {
@@ -47,6 +53,12 @@ func WithMQPublish(p MQPublish) Option {
 func WithMQConsume(c MQConsume) Option {
 	return func(o *option) {
 		o.MQConsume = c
+	}
+}
+
+func WithMQExchange(e MQExchange) Option {
+	return func(o *option) {
+		o.MQExchange = e
 	}
 }
 

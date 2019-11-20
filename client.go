@@ -13,19 +13,19 @@ import (
 )
 
 // ErrShutdown 客户端连接断开
-var ErrShutdown = errors.New("rabbitmq client is shutdwon")
+var ErrShutdown = errors.New("rabbitmq client is shutdown")
 
 // ErrNotSend 消息未发送或者发送失败
 var ErrNotSend = errors.New("message not send")
 
-// ErrQueueExsit queue 已经存在绑定关系
-var ErrQueueExsit = errors.New("queue's sending channel allready exsit")
+// ErrQueueExist queue 已经存在绑定关系
+var ErrQueueExist = errors.New("queue has binding sending channel")
 
 // ErrClose 客户端已关闭
 var ErrClose = errors.New("closed")
 
 // ErrQueueNotBindChannel queue 没有 发送channel 的绑定关系
-var ErrQueueNotBindChannel = errors.New("queue not bind channel")
+var ErrQueueNotBindChannel = errors.New("queue not bind send channel")
 
 // ConsumeCallback consume 回调处理
 type ConsumeCallback func(amqp.Delivery) error
@@ -77,7 +77,7 @@ func (c *Client) BindChannel(queue string, sendChan chan interface{}) error {
 	defer c.lock.Unlock()
 
 	if _, ok := c.sendChan[queue]; ok {
-		return ErrQueueExsit
+		return ErrQueueExist
 	}
 	c.sendChan[queue] = sendChan
 	return nil
@@ -201,6 +201,7 @@ con:
 		} else if err == ErrClose {
 			return ErrClose
 		}
+		log.Println(err.Error())
 	}
 
 	time.Sleep(100 * time.Millisecond)
@@ -208,6 +209,9 @@ con:
 }
 
 func (c *Client) consume(queue string, callback ConsumeCallback, option option) error {
+	if c.isClosed() {
+		return ErrClose
+	}
 	// consume
 	msgchan, err := c.channel.Consume(
 		queue,
@@ -219,8 +223,7 @@ func (c *Client) consume(queue string, callback ConsumeCallback, option option) 
 		nil,
 	)
 	if err != nil {
-		log.Printf("consume: channel consume error: %s\n", err.Error())
-		return err
+		return errors.Wrap(err, "consume: channel consume error")
 	}
 	for {
 		select {
@@ -283,6 +286,7 @@ pub:
 		} else if err == ErrClose {
 			return ErrClose
 		}
+		log.Println(err.Error())
 	}
 
 	time.Sleep(100 * time.Millisecond)
@@ -291,13 +295,14 @@ pub:
 
 // 返回值表示客户端是否已经 close
 func (c *Client) publish(queue string, option option) error {
-	c.lock.RLock()
-	sendChan, ok := c.sendChan[queue]
-	if !ok {
-		c.lock.RUnlock()
-		return ErrQueueNotBindChannel
+	if c.isClosed() {
+		return ErrClose
 	}
-	c.lock.RUnlock()
+
+	sendChan, err := c.queueChannel(queue)
+	if err != nil {
+		return err
+	}
 
 	for {
 		select {
@@ -321,14 +326,22 @@ func (c *Client) publish(queue string, option option) error {
 	}
 }
 
-func (c *Client) SendMessage(queue string, msg []byte) error {
+// 找到和 queue 绑定的发送队列(channel)
+func (c *Client) queueChannel(queue string) (chan interface{}, error) {
 	c.lock.RLock()
-	sendChan, ok := c.sendChan[queue]
+	defer c.lock.RUnlock()
+	ch, ok := c.sendChan[queue]
 	if !ok {
-		c.lock.RUnlock()
-		return ErrQueueNotBindChannel
+		return nil, ErrQueueNotBindChannel
 	}
-	c.lock.RUnlock()
+	return ch, nil
+}
+
+func (c *Client) SendMessage(queue string, msg []byte) error {
+	sendChan, err := c.queueChannel(queue)
+	if err != nil {
+		return err
+	}
 
 	sendChan <- msg
 
@@ -336,11 +349,9 @@ func (c *Client) SendMessage(queue string, msg []byte) error {
 }
 
 func (c *Client) SendMessageNonBlock(queue string, msg []byte) error {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-	sendChan, ok := c.sendChan[queue]
-	if !ok {
-		return ErrQueueNotBindChannel
+	sendChan, err := c.queueChannel(queue)
+	if err != nil {
+		return err
 	}
 
 	select {

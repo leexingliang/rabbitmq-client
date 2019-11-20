@@ -174,7 +174,7 @@ func (c *Client) Consume(queue string, callback ConsumeCallback, options ...Opti
 again:
 	c.wg.Wait()
 	if c.isClosed() {
-		return nil
+		return ErrClose
 	}
 	if _, err := c.channel.QueueDeclare(
 		queue, // name
@@ -193,7 +193,7 @@ again:
 		// todo
 	}
 
-con:
+reconsume:
 	if err := c.consume(queue, callback, option); err != nil {
 		// 检查一下错误码
 		if err == ErrQueueNotBindChannel {
@@ -205,7 +205,7 @@ con:
 	}
 
 	time.Sleep(100 * time.Millisecond)
-	goto con
+	goto reconsume
 }
 
 func (c *Client) consume(queue string, callback ConsumeCallback, option option) error {
@@ -252,7 +252,7 @@ func (c *Client) Publish(queue string, options ...Option) error {
 again:
 	c.wg.Wait()
 	if c.isClosed() {
-		return nil
+		return ErrClose
 	}
 	if _, err := c.channel.QueueDeclare(
 		queue, // name
@@ -278,7 +278,7 @@ again:
 			goto again
 		}
 	}
-pub:
+republish:
 	if err := c.publish(queue, option); err != nil {
 		// 检查一下错误码
 		if err == ErrQueueNotBindChannel {
@@ -290,7 +290,7 @@ pub:
 	}
 
 	time.Sleep(100 * time.Millisecond)
-	goto pub
+	goto republish
 }
 
 // 返回值表示客户端是否已经 close

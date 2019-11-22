@@ -201,6 +201,20 @@ reconsume:
 	goto reconsume
 }
 
+func (c *Client) declareQueue(queue string) error {
+	if _, err := c.channel.QueueDeclare(
+		queue, // name
+		true,  // durable
+		false, // delete when usused
+		false, // exclusive
+		true,  // no-wait
+		nil,   // arguments
+	); err != nil {
+		return errors.Wrap(err, "queue declare error")
+	}
+	return nil
+}
+
 func (c *Client) consume(queue string, callback ConsumeCallback, option option) error {
 	if c.isClosed() {
 		return ErrClose
@@ -248,11 +262,6 @@ again:
 		return ErrClose
 	}
 
-	if err := c.declareQueue(queue); err != nil {
-		log.Println(err.Error())
-		goto again
-	}
-
 	if err := c.bindExchange(queue, option); err != nil {
 		log.Println(err.Error())
 		goto again
@@ -271,20 +280,6 @@ republish:
 
 	time.Sleep(100 * time.Millisecond)
 	goto republish
-}
-
-func (c *Client) declareQueue(queue string) error {
-	if _, err := c.channel.QueueDeclare(
-		queue, // name
-		true,  // durable
-		false, // delete when usused
-		false, // exclusive
-		true,  // no-wait
-		nil,   // arguments
-	); err != nil {
-		return errors.Wrap(err, "queue declare error")
-	}
-	return nil
 }
 
 func (c *Client) bindExchange(queue string, option option) error {

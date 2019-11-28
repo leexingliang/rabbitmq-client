@@ -191,8 +191,10 @@ again:
 	}
 
 	// qos
-	if err := c.channel.Qos(option.MQQos.Num, 0, false); err != nil {
-		// todo
+	if option.MQQos.Num != defaultOption.MQQos.Num {
+		if err := c.channel.Qos(option.MQQos.Num, 0, false); err != nil {
+			// todo
+		}
 	}
 
 reconsume:

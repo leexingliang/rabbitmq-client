@@ -23,5 +23,5 @@ func main() {
 		return nil
 	}, mqclient.WithMQConsume(mqclient.MQConsume{Tag: "queue-name"}))
 	go client.Publish(queue,
-		mqclient.WithMQPublish(mqclient.MQPublish{Key: queue}))
+		mqclient.WithMQRouting(mqclient.MQRouting{Key: queue}))
 }

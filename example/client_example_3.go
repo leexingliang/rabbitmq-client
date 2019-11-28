@@ -14,9 +14,10 @@ func main() {
 		URL:      "localhost:5437",
 		VHost:    "test",
 	}
+	key := "test"
 	queue := "test-queue"
-	publish := mqclient.MQPublish{
-		Key: queue,
+	routingkey := mqclient.MQRouting{
+		Key: key,
 	}
 	exchange := mqclient.MQExchange{
 		Exchange: "test-exchange",
@@ -28,9 +29,10 @@ func main() {
 	go client.Consume(queue, func(delivery amqp.Delivery) error {
 		fmt.Println(delivery.Body)
 		return nil
-	}, mqclient.WithMQConsume(mqclient.MQConsume{Tag: "hahah"}))
+	}, mqclient.WithMQConsume(mqclient.MQConsume{Tag: "hahah"}),
+		mqclient.WithMQRouting(routingkey), mqclient.WithMQExchange(exchange))
 
 	go client.Publish(queue,
-		mqclient.WithMQPublish(publish),
+		mqclient.WithMQRouting(routingkey),
 		mqclient.WithMQExchange(exchange))
 }

@@ -17,5 +17,5 @@ func main() {
 	client := mqclient.NewMQClient(base)
 	client.BindChannel(queue, make(chan interface{}, 100*1000))
 	go client.Publish(queue,
-		mqclient.WithMQPublish(mqclient.MQPublish{Key: queue}))
+		mqclient.WithMQRouting(mqclient.MQRouting{Key: queue}))
 }

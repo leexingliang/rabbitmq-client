@@ -8,7 +8,7 @@ type MQBase struct {
 	VHost    string
 }
 
-type MQPublish struct {
+type MQRouting struct {
 	Key string
 }
 
@@ -37,16 +37,16 @@ const (
 type Option func(*option)
 
 type option struct {
-	MQPublish MQPublish
 	MQConsume MQConsume
 
 	MQExchange MQExchange
+	MQRouting  MQRouting
 	MQQos      MQQos
 }
 
-func WithMQPublish(p MQPublish) Option {
+func WithMQRouting(p MQRouting) Option {
 	return func(o *option) {
-		o.MQPublish = p
+		o.MQRouting = p
 	}
 }
 
